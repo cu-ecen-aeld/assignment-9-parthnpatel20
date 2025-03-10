@@ -1,0 +1,5 @@
+config BR2_PACKAGE_LDD
+    bool "ldd"
+    help
+      Install ldd3 modules (misc-modules, scull) to rootfs
+
