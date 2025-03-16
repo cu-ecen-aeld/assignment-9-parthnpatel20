@@ -1,0 +1,71 @@
+#!/bin/sh
+
+# Function to determine user group
+detect_group() {
+    if grep -q '^staff:' /etc/group; then
+        echo "staff"
+    else
+        echo "users"
+    fi
+}
+
+# Function to load a kernel module
+insert_module() {
+    local module_name="$1"
+    local module_path="$2"
+    local major_num
+
+    # Try modprobe first, fallback to insmod if needed
+    if ! modprobe "$module_name" 2>/dev/null; then
+        echo "modprobe $module_name failed, attempting insmod"
+        insmod "$module_path" || { echo "insmod failed"; exit 1; }
+    fi
+
+    # Retrieve major number and create device node
+    major_num=$(awk '$2=="'"$module_name"'" {print $1}' /proc/devices)
+    [ -n "$major_num" ] && {
+        rm -f /dev/"$module_name"
+        mknod /dev/"$module_name" c "$major_num" 0
+        chown :"$PRIMARY_GROUP" /dev/"$module_name"
+        chmod 660 /dev/"$module_name"
+    }
+}
+
+# Function to unload a kernel module
+remove_module() {
+    local module_name="$1"
+
+    if ! modprobe -r "$module_name" 2>/dev/null; then
+        echo "modprobe -r $module_name failed, using rmmod"
+        rmmod "$module_name" || { echo "rmmod failed"; exit 1; }
+    fi
+
+    # Remove device file
+    rm -f /dev/"$module_name"
+}
+
+# Main execution
+PRIMARY_GROUP=$(detect_group)
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 {start|stop}"
+    exit 1
+fi
+
+case "$1" in
+    start)
+        echo "Initializing AESD Character Device..."
+        insert_module aesdchar /lib/modules/$(uname -r)/extra/aesdchar.ko
+        ;;
+    stop)
+        echo "Removing AESD Character Device..."
+        remove_module aesdchar
+        ;;
+    *)
+        echo "Invalid argument. Use: $0 {start|stop}"
+        exit 1
+        ;;
+esac
+
+exit 0
+
